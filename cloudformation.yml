@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+    BucketName:
+        Type: String
+        Description: S3 bucket name
+    PublicKey:
+        Type: String
+        Description: PublicKey public key
+
+Resources:
+  MyBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+        BucketName: !Ref BucketName # This will get passed in to the template when you deploy it
+
+  CloudFrontOAI:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+        CloudFrontOriginAccessIdentityConfig:
+            Comment: !Sub Cloudfront identity for distribution access to ${MyBucket}
+  
+  MyBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+        Bucket: !Ref MyBucket
+        PolicyDocument:
+            Statement:
+                - Action: s3:GetObject
+                  Effect: Allow
+                  Resource: !Sub arn:aws:s3:::${MyBucket}/*
+                  Principal:
+                      CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
+
+  MyCloudFrontPublicKey:
+    Type: AWS::CloudFront::PublicKey
+    Properties:
+        PublicKeyConfig:
+            CallerReference: !Sub ${BucketName}-cloudfront-public-key
+            Comment: !Sub Public key for ${BucketName} signed urls
+            Name: !Sub ${BucketName}-cloudfront-public-key
+            EncodedKey: !Ref PublicKey # This will get passed in to the template when you deploy it
+
+  MyCloudFrontKeyGroup:
+    Type: AWS::CloudFront::KeyGroup
+    Properties:
+        KeyGroupConfig:
+            Comment: String
+            Items:
+                - !Ref MyCloudFrontPublicKey
+            Name: !Sub ${BucketName}-cloudfront-key-group
+
+  MyBucketCDN:
+    Type: AWS::CloudFront::Distribution
+    DependsOn:
+        - MyBucket
+        - CloudFrontOAI
+    Properties:
+        DistributionConfig:
+            Comment: !Sub ${BucketName} bucket CDN
+            Enabled: true
+            DefaultCacheBehavior:
+                ForwardedValues:
+                    QueryString: true
+                TargetOriginId: !Sub ${BucketName}-origin
+                ViewerProtocolPolicy: allow-all
+                TrustedKeyGroups:
+                    - !Ref MyCloudFrontKeyGroup
+            DefaultRootObject: index.html
+            Origins:
+                - DomainName: !GetAtt [MyBucket, DomainName]
+                  Id: !Sub ${BucketName}-origin
+                  S3OriginConfig:
+                      OriginAccessIdentity: !Sub origin-access-identity/cloudfront/${CloudFrontOAI}
+                      
+# CloudFormation outputs. These values will be available in the Cloudformation console:
+# https://console.aws.amazon.com/cloudformation/home#/stacks
+# or you can use: aws cloudformation describe-stacks --stack-name my-stack-name
+Outputs:
+    MyCloudfrontPublicKeyID:
+        Value: !Ref MyCloudFrontPublicKey
+        Description: The ID of the Cloudfront public key used for signed URLs
+    MyBucketCDNDomainName:
+        Value: !GetAtt [MyBucketCDN, DomainName]
+        Description: Domain name for the Cloudfront distribution (CDN)
