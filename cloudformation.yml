@@ -6,7 +6,7 @@ Parameters:
         Description: S3 bucket name
     PublicKey:
         Type: String
-        Description: PublicKey public key
+        Description: Public key for allowed signed URLs
 
 Resources:
   MyBucket:
